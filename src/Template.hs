@@ -45,14 +45,21 @@ step x@(as'@(a : as), fs, h, gs) =
   case trace (show n) n of
     (NodeInt _) -> undefined
     (NodeApp a' _) -> (a' : as', fs, h, gs)
-    (NodeFn _ ns e) -> stepFn x ns e
+    (NodeFn _ ns e) -> stepFnUpdate x ns e
     (NodeIndir a') -> (a' : as, fs, h, gs)
   where
     n = H.lookup h a
 step _ = undefined
 
 stepFn :: State -> [String] -> L.Expr String -> State
-stepFn (as, fs, h, gs) ns e = (drop (length ns) as, fs, h', gs)
+stepFn (as, fs, h, gs) ns e = (a : drop (length ns + 1) as, fs, h', gs)
+  where
+    (h', a) =
+      instantiate e h $
+        M.union (M.fromList $ zip ns $ unpackArgs h $ tail as) gs
+
+stepFnUpdate :: State -> [String] -> L.Expr String -> State
+stepFnUpdate (as, fs, h, gs) ns e = (drop (length ns) as, fs, h', gs)
   where
     h' =
       instantiateUpdate e (as !! length ns) h $
@@ -143,6 +150,48 @@ tests = do
     )
     (NodeInt 4)
   TEST (f "id x = x; main = twice twice id 3") (NodeInt 3)
+  TEST (f "main = twice (I I I) 3") (NodeInt 3)
+  TEST
+    ( f $
+        unlines
+          [ "cons a b cc n = cc a b;",
+            "nil cc cn = cn;",
+            "hd list = list K abort;",
+            "tl list = list K1 abort;",
+            "abort = abort;",
+            "infinite x = cons x (infinite x);",
+            "main = hd (tl (infinite 4))"
+          ]
+    )
+    (NodeInt 4)
+  TEST
+    ( f $
+        unlines
+          [ "main =",
+            "  let",
+            "    id1 = I I I",
+            "  in",
+            "  id1 id1 3"
+          ]
+    )
+    (NodeInt 3)
+  TEST
+    ( f $
+        unlines
+          [ "cons a b cc n = cc a b;",
+            "nil cc cn = cn;",
+            "hd list = list K abort;",
+            "tl list = list K1 abort;",
+            "abort = abort;",
+            "infinite x =",
+            "  letrec",
+            "    xs = cons x xs",
+            "  in",
+            "  xs;",
+            "main = hd (tl (tl (infinite 4)))"
+          ]
+    )
+    (NodeInt 4)
   putChar '\n'
   where
     f s = maybe undefined (f' . last . eval . compile) (P.parse s)
