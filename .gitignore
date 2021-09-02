@@ -1,0 +1,9 @@
+*
+!.gitignore
+!*.nix
+!.shellhook
+!examples/
+!*.core
+!src/
+!*.hs
+!main
