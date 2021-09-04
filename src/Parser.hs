@@ -3,6 +3,7 @@
 
 module Parser where
 
+import Data.Bifunctor (first)
 import Data.Char (isAlpha, isDigit, isSpace)
 import Data.List.NonEmpty (NonEmpty (..))
 import Lang (Expr (..), Func, Program)
@@ -41,15 +42,17 @@ alt :: Parser a -> Parser a -> Parser a
 alt p0 p1 ts = p0 ts ++ p1 ts
 
 lift2 :: (a -> b -> c) -> Parser a -> Parser b -> Parser c
-lift2 f p0 p1 ts0 = [(f t1 t2, ts2) | (t1, ts1) <- p0 ts0, (t2, ts2) <- p1 ts1]
+lift2 f p0 p1 ts0 = do
+  (t1, ts1) <- p0 ts0
+  (t2, ts2) <- p1 ts1
+  return (f t1 t2, ts2)
 
 lift3 :: (a -> b -> c -> d) -> Parser a -> Parser b -> Parser c -> Parser d
-lift3 f p0 p1 p2 ts0 =
-  [ (f t1 t2 t3, ts3)
-    | (t1, ts1) <- p0 ts0,
-      (t2, ts2) <- p1 ts1,
-      (t3, ts3) <- p2 ts2
-  ]
+lift3 f p0 p1 p2 ts0 = do
+  (t1, ts1) <- p0 ts0
+  (t2, ts2) <- p1 ts1
+  (t3, ts3) <- p2 ts2
+  return (f t1 t2 t3, ts3)
 
 lift4 ::
   (a -> b -> c -> d -> e) ->
@@ -58,13 +61,12 @@ lift4 ::
   Parser c ->
   Parser d ->
   Parser e
-lift4 f p0 p1 p2 p3 ts0 =
-  [ (f t1 t2 t3 t4, ts4)
-    | (t1, ts1) <- p0 ts0,
-      (t2, ts2) <- p1 ts1,
-      (t3, ts3) <- p2 ts2,
-      (t4, ts4) <- p3 ts3
-  ]
+lift4 f p0 p1 p2 p3 ts0 = do
+  (t1, ts1) <- p0 ts0
+  (t2, ts2) <- p1 ts1
+  (t3, ts3) <- p2 ts2
+  (t4, ts4) <- p3 ts3
+  return (f t1 t2 t3 t4, ts4)
 
 many :: Parser a -> Parser [a]
 many p = many1 p `alt` empty []
@@ -76,7 +78,7 @@ empty :: a -> Parser a
 empty x ts = [(x, ts)]
 
 apply :: Parser a -> (a -> b) -> Parser b
-apply p f ts0 = [(f t, ts1) | (t, ts1) <- p ts0]
+apply p f = (first f <$>) . p
 
 sepBy1 :: Parser a -> Parser b -> Parser [a]
 sepBy1 p0 p1 = lift2 (:) p0 (many $ lift2 (\_ x -> x) p1 p0)
