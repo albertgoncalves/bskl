@@ -1,3 +1,5 @@
+{-# LANGUAGE Strict #-}
+
 module Heap where
 
 import qualified Data.IntMap.Strict as M
@@ -28,7 +30,7 @@ isNull :: Addr -> Bool
 isNull = (null ==)
 
 empty :: Heap a
-empty = Heap 0 (map Addr [1 ..]) M.empty
+empty = Heap 0 (map Addr [1 .. 100]) M.empty
 
 alloc :: Heap a -> a -> (Heap a, Addr)
 alloc (Heap s (a : as) m) x =
