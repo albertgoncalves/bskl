@@ -5,12 +5,17 @@ module Template where
 import Data.Bifunctor (second)
 import Data.List (mapAccumL)
 import qualified Data.Map.Lazy as M
-import Debug.Trace (trace)
 import qualified Heap as H
-import qualified Lang as L
-import qualified Parser as P
+import Lang (Expr (..), Func, Program, prelude)
+import Parser (parse)
 import Test (Loc (..), test)
-import Prelude hiding (lex)
+
+#ifdef DEBUG
+import Debug.Trace (trace)
+#else
+trace :: a -> b -> b
+trace = const id
+#endif
 
 type Stack = [H.Addr]
 
@@ -20,25 +25,25 @@ type Globals = M.Map String H.Addr
 
 data Node
   = NodeApp H.Addr H.Addr
-  | NodeFn String [String] (L.Expr String)
+  | NodeFn String [String] (Expr String)
   | NodeInt Int
   | NodeIndir H.Addr
   deriving (Eq, Show)
 
 type State = (Stack, Frames, H.Heap Node, Globals)
 
-makeHeap :: [L.Func] -> (H.Heap Node, Globals)
+makeHeap :: [Func] -> (H.Heap Node, Globals)
 makeHeap = second M.fromList . mapAccumL f H.empty
   where
-    f :: H.Heap Node -> L.Func -> (H.Heap Node, (String, H.Addr))
+    f :: H.Heap Node -> Func -> (H.Heap Node, (String, H.Addr))
     f h (x, as, e) = (h', (x, a))
       where
         (h', a) = H.alloc h (NodeFn x as e)
 
-compile :: L.Program -> State
+compile :: Program -> State
 compile p = ([(M.!) gs "main"], (), h, gs)
   where
-    (h, gs) = makeHeap $ L.prelude ++ p
+    (h, gs) = makeHeap $ prelude ++ p
 
 step :: State -> State
 step x@(as'@(a : as), fs, h, gs) =
@@ -51,28 +56,28 @@ step x@(as'@(a : as), fs, h, gs) =
     n = H.lookup h a
 step _ = undefined
 
-stepFn :: State -> [String] -> L.Expr String -> State
+stepFn :: State -> [String] -> Expr String -> State
 stepFn (as, fs, h, gs) ns e = (a : drop (length ns + 1) as, fs, h', gs)
   where
     (h', a) =
       instantiate e h $
         M.union (M.fromList $ zip ns $ unpackArgs h $ tail as) gs
 
-stepFnUpdate :: State -> [String] -> L.Expr String -> State
+stepFnUpdate :: State -> [String] -> Expr String -> State
 stepFnUpdate (as, fs, h, gs) ns e = (drop (length ns) as, fs, h', gs)
   where
     h' =
       instantiateUpdate e (as !! length ns) h $
         M.union (M.fromList $ zip ns $ unpackArgs h $ tail as) gs
 
-instantiate :: L.Expr String -> H.Heap Node -> Globals -> (H.Heap Node, H.Addr)
-instantiate (L.ExprInt i) h _ = H.alloc h (NodeInt i)
-instantiate (L.ExprVar n) h gs = (h, (M.!) gs n)
-instantiate (L.ExprApp e0 e1) h0 gs = H.alloc h2 (NodeApp a1 a2)
+instantiate :: Expr String -> H.Heap Node -> Globals -> (H.Heap Node, H.Addr)
+instantiate (ExprInt i) h _ = H.alloc h (NodeInt i)
+instantiate (ExprVar n) h gs = (h, (M.!) gs n)
+instantiate (ExprApp e0 e1) h0 gs = H.alloc h2 (NodeApp a1 a2)
   where
     (h1, a1) = instantiate e0 h0 gs
     (h2, a2) = instantiate e1 h1 gs
-instantiate (L.ExprLet r ds e) h0 gs = instantiate e h1 gs'
+instantiate (ExprLet r ds e) h0 gs = instantiate e h1 gs'
   where
     (h1, ds') = mapAccumL f h0 ds
     gs' = M.union (M.fromList ds') gs
@@ -86,14 +91,14 @@ instantiate (L.ExprLet r ds e) h0 gs = instantiate e h1 gs'
 instantiate _ _ _ = undefined
 
 instantiateUpdate ::
-  L.Expr String -> H.Addr -> H.Heap Node -> Globals -> H.Heap Node
-instantiateUpdate (L.ExprInt i) a h _ = H.update h a $ NodeInt i
-instantiateUpdate (L.ExprVar n) a h gs = H.update h a $ NodeIndir $ (M.!) gs n
-instantiateUpdate (L.ExprApp e0 e1) a h0 gs = H.update h2 a (NodeApp a1 a2)
+  Expr String -> H.Addr -> H.Heap Node -> Globals -> H.Heap Node
+instantiateUpdate (ExprInt i) a h _ = H.update h a $ NodeInt i
+instantiateUpdate (ExprVar n) a h gs = H.update h a $ NodeIndir $ (M.!) gs n
+instantiateUpdate (ExprApp e0 e1) a h0 gs = H.update h2 a (NodeApp a1 a2)
   where
     (h1, a1) = instantiate e0 h0 gs
     (h2, a2) = instantiate e1 h1 gs
-instantiateUpdate (L.ExprLet r ds e) a h0 gs = instantiateUpdate e a h1 gs'
+instantiateUpdate (ExprLet r ds e) a h0 gs = instantiateUpdate e a h1 gs'
   where
     (h1, ds') = mapAccumL f h0 ds
     gs' = M.union (M.fromList ds') gs
@@ -149,7 +154,7 @@ tests = do
           ]
     )
     (NodeInt 4)
-  TEST (f "id x = x; main = twice twice id 3") (NodeInt 3)
+  TEST (f "id x = I x; main = twice twice id 3") (NodeInt 3)
   TEST (f "main = twice (I I I) 3") (NodeInt 3)
   TEST
     ( f $
@@ -194,7 +199,7 @@ tests = do
     (NodeInt 4)
   putChar '\n'
   where
-    f s = maybe undefined (f' . last . eval . compile) (P.parse s)
+    f = maybe undefined (f' . last . eval . compile) . parse
       where
         f' ([x], _, h, _) = H.lookup h x
         f' _ = undefined
