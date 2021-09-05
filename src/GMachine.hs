@@ -140,6 +140,7 @@ tests = do
   TEST (f "main = twice (I I I) 3") (NodeInt 3)
   TEST (f "loop x = loop x; main = K 3 (loop 1)") (NodeInt 3)
   TEST (f "loop = loop; main = K I loop 1") (NodeInt 1)
+  TEST (f "h x y = g x y; g x = f x; f = K I; main = f 1 2") (NodeInt 2)
   putChar '\n'
   where
     f = maybe undefined (f' . last . eval . compile) . parse
