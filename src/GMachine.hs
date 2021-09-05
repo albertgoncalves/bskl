@@ -17,6 +17,8 @@ data Inst
   | InstMkApp
   | InstUpdate Int
   | InstPop Int
+  | InstAlloc Int
+  | InstSlide Int
   deriving (Eq, Show)
 
 data Node
@@ -39,10 +41,11 @@ dispatch (InstPushGlobal s) = pushGlobal s
 dispatch (InstPushInt n) = pushInt n
 dispatch InstMkApp = mkApp
 dispatch (InstPush n) = push n
--- dispatch (InstSlide n) = slide n
 dispatch InstUnwind = unwind
 dispatch (InstUpdate n) = update n
 dispatch (InstPop n) = pop n
+dispatch (InstAlloc n) = alloc n
+dispatch (InstSlide n) = slide n
 
 pushGlobal :: String -> State -> State
 pushGlobal s (is, as, h, gs) = (is, (M.!) gs s : as, h, gs)
@@ -65,9 +68,15 @@ mkApp _ = undefined
 push :: Int -> State -> State
 push n (is, as, h, gs) = (is, as !! n : as, h, gs)
 
--- slide :: Int -> State -> State
--- slide n (is, a : as, h, gs) = (is, a : drop n as, h, gs)
--- slide _ _ = undefined
+slide :: Int -> State -> State
+slide n (is, a : as, h, gs) = (is, a : drop n as, h, gs)
+slide _ _ = undefined
+
+alloc :: Int -> State -> State
+alloc n (is, as, h, gs) = (is, as', h', gs)
+  where
+    (h', as') = foldr f (h, as) $ replicate n $ NodeIndir H.null
+    f x (h'', as'') = (: as'') <$> H.alloc h'' x
 
 update :: Int -> State -> State
 update n (is, a : as, h, gs) = (is, as, H.update h (as !! n) (NodeIndir a), gs)
@@ -104,7 +113,7 @@ allocFn h (s, n, is) = (h', (s, a))
   where
     (h', a) = H.alloc h (NodeGlobal n is)
 
-compileFunc :: (String, [String], Expr String) -> (String, Int, [Inst])
+compileFunc :: Func -> (String, Int, [Inst])
 compileFunc (n, ns, e) =
   (n, length ns, compileUnwind e $ M.fromList $ zip ns [0 :: Int ..])
 
@@ -121,7 +130,44 @@ compileExpr (ExprVar s) m =
 compileExpr (ExprInt n) _ = [InstPushInt n]
 compileExpr (ExprApp e0 e1) m =
   compileExpr e1 m ++ compileExpr e0 (offset 1 m) ++ [InstMkApp]
+compileExpr (ExprLet r ds e) m =
+  (if r then compileLetRec else compileLet) compileExpr ds e m
 compileExpr _ _ = undefined
+
+compileLetRec ::
+  (Expr String -> M.Map String Int -> [Inst]) ->
+  [(String, Expr String)] ->
+  (Expr String -> M.Map String Int -> [Inst])
+compileLetRec c ds e m =
+  [InstAlloc n]
+    ++ f ds (n - 1)
+    ++ c e (compileArgs ds m)
+    ++ [InstSlide $ length ds]
+  where
+    m' = compileArgs ds m
+    n = length ds
+    f :: [(String, Expr String)] -> Int -> [Inst]
+    f [] (-1) = []
+    f ((_, e') : ds') n' =
+      compileExpr e' m' ++ [InstUpdate n'] ++ f ds' (n' - 1)
+    f _ _ = undefined
+
+compileLet ::
+  (Expr String -> M.Map String Int -> [Inst]) ->
+  [(String, Expr String)] ->
+  (Expr String -> M.Map String Int -> [Inst])
+compileLet c ds e m =
+  f ds m ++ c e (compileArgs ds m) ++ [InstSlide $ length ds]
+  where
+    f :: [(String, Expr String)] -> M.Map String Int -> [Inst]
+    f [] _ = []
+    f ((_, e') : ds') m' = compileExpr e' m' ++ f ds' (offset 1 m')
+
+compileArgs :: [(String, Expr String)] -> M.Map String Int -> M.Map String Int
+compileArgs ds m =
+  M.union (M.fromList $ zip (map fst ds) [n - 1, n - 2 ..]) (offset n m)
+  where
+    n = length ds
 
 offset :: Int -> M.Map String Int -> M.Map String Int
 offset n = M.fromList . map ((+ n) <$>) . M.assocs
@@ -133,17 +179,75 @@ compile p = ([InstPushGlobal "main", InstUnwind], [], h, gs)
 
 #define TEST test (Loc (__FILE__, __LINE__))
 
-tests :: IO ()
-tests = do
+testCompile :: IO ()
+testCompile = do
+  TEST
+    ((compileFunc <$>) <$> parse "Y f = letrec x = f x in x")
+    ( Just
+        [ ( "Y",
+            1,
+            [ InstAlloc 1,
+              InstPush 0,
+              InstPush 2,
+              InstMkApp,
+              InstUpdate 0,
+              InstPush 0,
+              InstSlide 1,
+              InstUpdate 1,
+              InstPop 1,
+              InstUnwind
+            ]
+          )
+        ]
+    )
+  putChar '\n'
+
+testEval :: IO ()
+testEval = do
   TEST (f "id x = I x; main = twice twice id 3") (NodeInt 3)
   TEST (f "main = S K K 3") (NodeInt 3)
   TEST (f "main = twice (I I I) 3") (NodeInt 3)
   TEST (f "loop x = loop x; main = K 3 (loop 1)") (NodeInt 3)
   TEST (f "loop = loop; main = K I loop 1") (NodeInt 1)
   TEST (f "h x y = g x y; g x = f x; f = K I; main = f 1 2") (NodeInt 2)
+  TEST
+    ( f $
+        unlines
+          [ "pair x y f = f x y;",
+            "fst p = p K;",
+            "snd p = p K1;",
+            "f x y =",
+            "  letrec",
+            "    a = pair x b;",
+            "    b = pair y a",
+            "  in",
+            "  fst (snd (snd (snd a)));",
+            "main = f 3 4"
+          ]
+    )
+    (NodeInt 4)
+  TEST (f "main = let id1 = I I I in id1 id1 3") (NodeInt 3)
+  TEST
+    ( f $
+        unlines
+          [ "cons a b cc n = cc a b;",
+            "nil cc cn = cn;",
+            "hd list = list K abort;",
+            "tl list = list K1 abort;",
+            "abort = abort;",
+            "infinite x = letrec xs = cons x xs in xs;",
+            "main = hd (tl (tl (infinite 4)))"
+          ]
+    )
+    (NodeInt 4)
   putChar '\n'
   where
     f = maybe undefined (f' . last . eval . compile) . parse
       where
         f' (_, [x], h, _) = H.lookup h x
         f' _ = undefined
+
+tests :: IO ()
+tests = do
+  testCompile
+  testEval
