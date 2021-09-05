@@ -169,17 +169,7 @@ tests = do
           ]
     )
     (NodeInt 4)
-  TEST
-    ( f $
-        unlines
-          [ "main =",
-            "  let",
-            "    id1 = I I I",
-            "  in",
-            "  id1 id1 3"
-          ]
-    )
-    (NodeInt 3)
+  TEST (f "main = let id1 = I I I in id1 id1 3") (NodeInt 3)
   TEST
     ( f $
         unlines
@@ -188,11 +178,7 @@ tests = do
             "hd list = list K abort;",
             "tl list = list K1 abort;",
             "abort = abort;",
-            "infinite x =",
-            "  letrec",
-            "    xs = cons x xs",
-            "  in",
-            "  xs;",
+            "infinite x = letrec xs = cons x xs in xs;",
             "main = hd (tl (tl (infinite 4)))"
           ]
     )
