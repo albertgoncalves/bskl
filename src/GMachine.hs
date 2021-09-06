@@ -47,6 +47,8 @@ type Globals = M.Map String H.Addr
 
 type State = ([Inst], [H.Addr], [Frame], H.Heap Node, Globals)
 
+type Compiler = Expr String -> M.Map String Int -> [Inst]
+
 infix 9 .:
 
 (.:) :: (c -> d) -> (a -> b -> c) -> (a -> b -> d)
@@ -192,14 +194,14 @@ compileFunc (n, ns, e) =
   (n, length ns, compileUnwind e $ M.fromList $ zip ns [0 :: Int ..])
 
 -- NOTE: `R`
-compileUnwind :: Expr String -> M.Map String Int -> [Inst]
+compileUnwind :: Compiler
 compileUnwind e m =
   compileStrictExpr e m ++ [InstUpdate n, InstPop n, InstUnwind]
   where
     n = M.size m
 
 -- NOTE: `C`
-compileLazyExpr :: Expr String -> M.Map String Int -> [Inst]
+compileLazyExpr :: Compiler
 compileLazyExpr (ExprVar s) m =
   if M.member s m
     then [InstPush $ (M.!) m s]
@@ -212,7 +214,7 @@ compileLazyExpr (ExprLet r ds e) m =
 compileLazyExpr _ _ = undefined
 
 -- NOTE: `E`
-compileStrictExpr :: Expr String -> M.Map String Int -> [Inst]
+compileStrictExpr :: Compiler
 compileStrictExpr (ExprInt n) _ = [InstPushInt n]
 compileStrictExpr (ExprLet r ds e) m =
   (if r then compileLetRec else compileLet) compileStrictExpr ds e m
@@ -236,10 +238,7 @@ compileStrictExpr (ExprApp (ExprApp (ExprApp (ExprVar "if") e0) e1) e2) m =
     ++ [InstCond (compileStrictExpr e1 m) (compileStrictExpr e2 m)]
 compileStrictExpr e m = compileLazyExpr e m ++ [InstEval]
 
-compileLetRec ::
-  (Expr String -> M.Map String Int -> [Inst]) ->
-  [(String, Expr String)] ->
-  (Expr String -> M.Map String Int -> [Inst])
+compileLetRec :: Compiler -> [(String, Expr String)] -> Compiler
 compileLetRec c ds e m =
   [InstAlloc n]
     ++ f ds (n - 1)
@@ -254,10 +253,7 @@ compileLetRec c ds e m =
       compileLazyExpr e' m' ++ [InstUpdate n'] ++ f ds' (n' - 1)
     f _ _ = undefined
 
-compileLet ::
-  (Expr String -> M.Map String Int -> [Inst]) ->
-  [(String, Expr String)] ->
-  (Expr String -> M.Map String Int -> [Inst])
+compileLet :: Compiler -> [(String, Expr String)] -> Compiler
 compileLet c ds e m =
   f ds m ++ c e (compileArgs ds m) ++ [InstSlide $ length ds]
   where
