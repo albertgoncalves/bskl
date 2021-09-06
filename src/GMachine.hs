@@ -19,6 +19,19 @@ data Inst
   | InstPop Int
   | InstAlloc Int
   | InstSlide Int
+  | InstEval
+  | InstAdd
+  | InstSub
+  | InstMul
+  | InstDiv
+  | InstNeg
+  | InstEq
+  | InstNe
+  | InstLt
+  | InstLe
+  | InstGt
+  | InstGe
+  | InstCond [Inst] [Inst]
   deriving (Eq, Show)
 
 data Node
@@ -28,12 +41,14 @@ data Node
   | NodeIndir H.Addr
   deriving (Eq, Show)
 
+type Frame = ([Inst], [H.Addr])
+
 type Globals = M.Map String H.Addr
 
-type State = ([Inst], [H.Addr], H.Heap Node, Globals)
+type State = ([Inst], [H.Addr], [Frame], H.Heap Node, Globals)
 
 step :: State -> State
-step (i : is, as, h, gs) = dispatch i (is, as, h, gs)
+step (i : is, as, fs, h, gs) = dispatch i (is, as, fs, h, gs)
 step _ = undefined
 
 dispatch :: Inst -> State -> State
@@ -46,12 +61,29 @@ dispatch (InstUpdate n) = update n
 dispatch (InstPop n) = pop n
 dispatch (InstAlloc n) = alloc n
 dispatch (InstSlide n) = slide n
+dispatch InstAdd = binOp (+)
+dispatch InstSub = binOp (-)
+dispatch InstMul = binOp (*)
+dispatch InstDiv = binOp div
+dispatch InstNeg = neg
+dispatch InstEq = binOp (\a b -> toInt $ a == b)
+dispatch InstNe = binOp (\a b -> toInt $ a /= b)
+dispatch InstLt = binOp (\a b -> toInt $ a < b)
+dispatch InstLe = binOp (\a b -> toInt $ a <= b)
+dispatch InstGt = binOp (\a b -> toInt $ a > b)
+dispatch InstGe = binOp (\a b -> toInt $ a >= b)
+dispatch (InstCond i0 i1) = cond i0 i1
+dispatch InstEval = eval'
+
+toInt :: Bool -> Int
+toInt True = 1
+toInt False = 0
 
 pushGlobal :: String -> State -> State
-pushGlobal s (is, as, h, gs) = (is, (M.!) gs s : as, h, gs)
+pushGlobal s (is, as, fs, h, gs) = (is, (M.!) gs s : as, fs, h, gs)
 
 pushInt :: Int -> State -> State
-pushInt n (is, as, h, gs) = (is, a : as, h', gs)
+pushInt n (is, as, fs, h, gs) = (is, a : as, fs, h', gs)
   where
     s = show n
     (h', a) =
@@ -60,39 +92,70 @@ pushInt n (is, as, h, gs) = (is, a : as, h', gs)
         else H.alloc h (NodeInt n)
 
 mkApp :: State -> State
-mkApp (is, a0 : a1 : as, h, gs) = (is, a : as, h', gs)
+mkApp (is, a0 : a1 : as, fs, h, gs) = (is, a : as, fs, h', gs)
   where
     (h', a) = H.alloc h (NodeApp a0 a1)
 mkApp _ = undefined
 
 push :: Int -> State -> State
-push n (is, as, h, gs) = (is, as !! n : as, h, gs)
+push n (is, as, fs, h, gs) = (is, as !! n : as, fs, h, gs)
 
 slide :: Int -> State -> State
-slide n (is, a : as, h, gs) = (is, a : drop n as, h, gs)
+slide n (is, a : as, fs, h, gs) = (is, a : drop n as, fs, h, gs)
 slide _ _ = undefined
 
 alloc :: Int -> State -> State
-alloc n (is, as, h, gs) = (is, as', h', gs)
+alloc n (is, as, fs, h, gs) = (is, as', fs, h', gs)
   where
     (h', as') = foldr f (h, as) $ replicate n $ NodeIndir H.null
     f x (h'', as'') = (: as'') <$> H.alloc h'' x
 
 update :: Int -> State -> State
-update n (is, a : as, h, gs) = (is, as, H.update h (as !! n) (NodeIndir a), gs)
+update n (is, a : as, fs, h, gs) =
+  (is, as, fs, H.update h (as !! n) (NodeIndir a), gs)
 update _ _ = undefined
 
 pop :: Int -> State -> State
-pop n (is, as, h, gs) = (is, drop n as, h, gs)
+pop n (is, as, fs, h, gs) = (is, drop n as, fs, h, gs)
 
 unwind :: State -> State
-unwind s@(_, as'@(a : as), h, gs) =
+unwind (_, as'@(a : as), fs'@((is, as'') : fs), h, gs) =
   case H.lookup h a of
-    NodeInt _ -> s
-    NodeApp a' _ -> ([InstUnwind], a' : as', h, gs)
-    NodeGlobal n is -> (is, rearrange n h as', h, gs)
-    NodeIndir a' -> ([InstUnwind], a' : as, h, gs)
+    NodeInt _ -> (is, a : as'', fs, h, gs)
+    NodeApp a' _ -> ([InstUnwind], a' : as', fs', h, gs)
+    NodeGlobal n is' -> (is', rearrange n h as', fs', h, gs)
+    NodeIndir a' -> ([InstUnwind], a' : as, fs', h, gs)
 unwind _ = undefined
+
+binOp :: (Int -> Int -> Int) -> State -> State
+binOp f (is, a0 : a1 : as, fs, h, gs) =
+  case (H.lookup h a0, H.lookup h a1) of
+    (NodeInt l, NodeInt r) -> (is, a : as, fs, h', gs)
+      where
+        (h', a) = H.alloc h (NodeInt $ l `f` r)
+    _ -> undefined
+binOp _ _ = undefined
+
+neg :: State -> State
+neg (is, a : as, fs, h, gs) =
+  case H.lookup h a of
+    (NodeInt n) -> (is, a' : as, fs, h', gs)
+      where
+        (h', a') = H.alloc h (NodeInt $ negate n)
+    _ -> undefined
+neg _ = undefined
+
+cond :: [Inst] -> [Inst] -> State -> State
+cond i0 i1 (is, a : as, fs, h, gs) =
+  case H.lookup h a of
+    (NodeInt 1) -> (i0 ++ is, as, fs, h, gs)
+    (NodeInt 0) -> (i1 ++ is, as, fs, h, gs)
+    _ -> undefined
+cond _ _ _ = undefined
+
+eval' :: State -> State
+eval' (is, a : as, fs, h, gs) = ([InstUnwind], [a], (is, as) : fs, h, gs)
+eval' _ = undefined
 
 rearrange :: Int -> H.Heap Node -> [H.Addr] -> [H.Addr]
 rearrange n h as = take n (map (f . H.lookup h) $ tail as) ++ drop n as
@@ -101,11 +164,11 @@ rearrange n h as = take n (map (f . H.lookup h) $ tail as) ++ drop n as
     f _ = undefined
 
 eval :: State -> [State]
-eval s@([], _, _, _) = [s]
+eval s@([], _, _, _, _) = [s]
 eval s = s : eval (step s)
 
-makeHeap :: [Func] -> (H.Heap Node, Globals)
-makeHeap = (M.fromList <$>) . mapAccumL allocFn H.empty . map compileFunc
+makeHeap :: [(String, Int, [Inst])] -> (H.Heap Node, M.Map String H.Addr)
+makeHeap = (M.fromList <$>) . mapAccumL allocFn H.empty
 
 allocFn ::
   H.Heap Node -> (String, Int, [Inst]) -> (H.Heap Node, (String, H.Addr))
@@ -172,10 +235,154 @@ compileArgs ds m =
 offset :: Int -> M.Map String Int -> M.Map String Int
 offset n = M.fromList . map ((+ n) <$>) . M.assocs
 
+builtIns :: [(String, Int, [Inst])]
+builtIns =
+  [ ( "+",
+      2,
+      [ InstPush 1,
+        InstEval,
+        InstPush 1,
+        InstEval,
+        InstAdd,
+        InstUpdate 2,
+        InstPop 2,
+        InstUnwind
+      ]
+    ),
+    ( "-",
+      2,
+      [ InstPush 1,
+        InstEval,
+        InstPush 1,
+        InstEval,
+        InstSub,
+        InstUpdate 2,
+        InstPop 2,
+        InstUnwind
+      ]
+    ),
+    ( "*",
+      2,
+      [ InstPush 1,
+        InstEval,
+        InstPush 1,
+        InstEval,
+        InstMul,
+        InstUpdate 2,
+        InstPop 2,
+        InstUnwind
+      ]
+    ),
+    ( "/",
+      2,
+      [ InstPush 1,
+        InstEval,
+        InstPush 1,
+        InstEval,
+        InstDiv,
+        InstUpdate 2,
+        InstPop 2,
+        InstUnwind
+      ]
+    ),
+    ( "negate",
+      1,
+      [ InstPush 0,
+        InstEval,
+        InstNeg,
+        InstUpdate 1,
+        InstPop 1,
+        InstUnwind
+      ]
+    ),
+    ( "==",
+      2,
+      [ InstPush 1,
+        InstEval,
+        InstPush 1,
+        InstEval,
+        InstEq,
+        InstUpdate 2,
+        InstPop 2,
+        InstUnwind
+      ]
+    ),
+    ( "~=",
+      2,
+      [ InstPush 1,
+        InstEval,
+        InstPush 1,
+        InstEval,
+        InstNe,
+        InstUpdate 2,
+        InstPop 2,
+        InstUnwind
+      ]
+    ),
+    ( "<",
+      2,
+      [ InstPush 1,
+        InstEval,
+        InstPush 1,
+        InstEval,
+        InstLt,
+        InstUpdate 2,
+        InstPop 2,
+        InstUnwind
+      ]
+    ),
+    ( "<=",
+      2,
+      [ InstPush 1,
+        InstEval,
+        InstPush 1,
+        InstEval,
+        InstLe,
+        InstUpdate 2,
+        InstPop 2,
+        InstUnwind
+      ]
+    ),
+    ( ">",
+      2,
+      [ InstPush 1,
+        InstEval,
+        InstPush 1,
+        InstEval,
+        InstGt,
+        InstUpdate 2,
+        InstPop 2,
+        InstUnwind
+      ]
+    ),
+    ( ">=",
+      2,
+      [ InstPush 1,
+        InstEval,
+        InstPush 1,
+        InstEval,
+        InstGe,
+        InstUpdate 2,
+        InstPop 2,
+        InstUnwind
+      ]
+    ),
+    ( "if",
+      3,
+      [ InstPush 0,
+        InstEval,
+        InstCond [InstPush 1] [InstPush 2],
+        InstUpdate 3,
+        InstPop 3,
+        InstUnwind
+      ]
+    )
+  ]
+
 compile :: Program -> State
-compile p = ([InstPushGlobal "main", InstUnwind], [], h, gs)
+compile p = ([InstPushGlobal "main", InstEval], [], [], h, gs)
   where
-    (h, gs) = makeHeap $ prelude ++ p
+    (h, gs) = makeHeap $ map compileFunc (prelude ++ p) ++ builtIns
 
 #define TEST test (Loc (__FILE__, __LINE__))
 
@@ -240,11 +447,17 @@ testEval = do
           ]
     )
     (NodeInt 4)
+  TEST (f "main = 3 + 4 * 5") (NodeInt 23)
+  TEST (f "main = (20 / 6) * 4") (NodeInt 12)
+  TEST (f "main = if (0 == 0) 2 3") (NodeInt 2)
+  TEST (f "main = if (0 ~= 0) 2 3") (NodeInt 3)
+  TEST (f "main = if (negate 1 < 1) 2 3") (NodeInt 2)
+  TEST (f "main = if (negate 1 >= 3) 2 3") (NodeInt 3)
   putChar '\n'
   where
     f = maybe undefined (f' . last . eval . compile) . parse
       where
-        f' (_, [x], h, _) = H.lookup h x
+        f' (_, [x], _, h, _) = H.lookup h x
         f' _ = undefined
 
 tests :: IO ()
