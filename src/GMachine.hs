@@ -508,10 +508,10 @@ testEval = do
     (NodeInt 4)
   TEST (f "main = 3 + 4 * 5") (NodeInt 23)
   TEST (f "main = (20 / 6) * 4") (NodeInt 12)
-  TEST (f "main = if (0 == 0) 2 3") (NodeInt 2)
-  TEST (f "main = if (0 ~= 0) 2 3") (NodeInt 3)
-  TEST (f "main = if (negate 1 < 1) 2 3") (NodeInt 2)
-  TEST (f "main = if (negate 1 >= 3) 2 3") (NodeInt 3)
+  TEST (f "loop = loop; main = if (0 == 0) 2 loop") (NodeInt 2)
+  TEST (f "loop = loop; main = if (0 ~= 0) loop 3") (NodeInt 3)
+  TEST (f "loop = loop; main = if (negate 1 < 1) 2 loop") (NodeInt 2)
+  TEST (f "loop = loop; main = if (negate 1 >= 3) loop 3") (NodeInt 3)
   putChar '\n'
   where
     f = maybe undefined (f' . last . eval . compile) . parse
