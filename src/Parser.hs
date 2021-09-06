@@ -249,6 +249,19 @@ tests = do
         ]
     )
   TEST
+    (parse "f a b c = a - b / c")
+    ( Just
+        [ ( "f",
+            ["a", "b", "c"],
+            ExprApp
+              (ExprApp (ExprVar "-") (ExprVar "a"))
+              (ExprApp (ExprApp (ExprVar "/") (ExprVar "b")) (ExprVar "c"))
+          )
+        ]
+    )
+  TEST (parse "f a b c = a - b + c") Nothing
+  TEST (parse "f a b c = a / b * c") Nothing
+  TEST
     (parse "f x = letrec g = \\y. letrec h = \\z. h (g z) in h y x in g 4")
     ( Just
         [ ( "f",
