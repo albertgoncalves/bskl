@@ -322,13 +322,7 @@ builtIns =
     ),
     ( "negate",
       1,
-      [ InstPush 0,
-        InstEval,
-        InstNeg,
-        InstUpdate 1,
-        InstPop 1,
-        InstUnwind
-      ]
+      [InstPush 0, InstEval, InstNeg, InstUpdate 1, InstPop 1, InstUnwind]
     ),
     ( "==",
       2,
