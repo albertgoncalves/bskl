@@ -124,11 +124,16 @@ pop :: Int -> State -> State
 pop n (is, as, fs, h, gs) = (is, drop n as, fs, h, gs)
 
 unwind :: State -> State
-unwind (_, as'@(a : as), fs'@((is, as'') : fs), h, gs) =
+unwind (_, as'@(a : as), fs'@((is'', as'') : fs), h, gs) =
   case H.lookup h a of
-    NodeInt _ -> (is, a : as'', fs, h, gs)
+    NodeInt _ -> (is'', a : as'', fs, h, gs)
     NodeApp a' _ -> ([InstUnwind], a' : as', fs', h, gs)
-    NodeGlobal n is' -> (is', rearrange n h as', fs', h, gs)
+    NodeGlobal n is' ->
+      if m < n
+        then (is'', (as' !! m) : as'', fs, h, gs)
+        else (is', rearrange n h as', fs', h, gs)
+      where
+        m = length as' - 1
     NodeIndir a' -> ([InstUnwind], a' : as, fs', h, gs)
 unwind _ = undefined
 
@@ -181,26 +186,55 @@ allocFn h (s, n, is) = (h', (s, a))
   where
     (h', a) = H.alloc h (NodeGlobal n is)
 
+-- NOTE: `SC`
 compileFunc :: Func -> (String, Int, [Inst])
 compileFunc (n, ns, e) =
   (n, length ns, compileUnwind e $ M.fromList $ zip ns [0 :: Int ..])
 
+-- NOTE: `R`
 compileUnwind :: Expr String -> M.Map String Int -> [Inst]
-compileUnwind e m = compileExpr e m ++ [InstUpdate n, InstPop n, InstUnwind]
+compileUnwind e m =
+  compileStrictExpr e m ++ [InstUpdate n, InstPop n, InstUnwind]
   where
     n = M.size m
 
-compileExpr :: Expr String -> M.Map String Int -> [Inst]
-compileExpr (ExprVar s) m =
+-- NOTE: `C`
+compileLazyExpr :: Expr String -> M.Map String Int -> [Inst]
+compileLazyExpr (ExprVar s) m =
   if M.member s m
     then [InstPush $ (M.!) m s]
     else [InstPushGlobal s]
-compileExpr (ExprInt n) _ = [InstPushInt n]
-compileExpr (ExprApp e0 e1) m =
-  compileExpr e1 m ++ compileExpr e0 (offset 1 m) ++ [InstMkApp]
-compileExpr (ExprLet r ds e) m =
-  (if r then compileLetRec else compileLet) compileExpr ds e m
-compileExpr _ _ = undefined
+compileLazyExpr (ExprInt n) _ = [InstPushInt n]
+compileLazyExpr (ExprApp e0 e1) m =
+  compileLazyExpr e1 m ++ compileLazyExpr e0 (offset 1 m) ++ [InstMkApp]
+compileLazyExpr (ExprLet r ds e) m =
+  (if r then compileLetRec else compileLet) compileLazyExpr ds e m
+compileLazyExpr _ _ = undefined
+
+-- NOTE: `E`
+compileStrictExpr :: Expr String -> M.Map String Int -> [Inst]
+compileStrictExpr (ExprInt n) _ = [InstPushInt n]
+compileStrictExpr (ExprLet r ds e) m =
+  (if r then compileLetRec else compileLet) compileStrictExpr ds e m
+compileStrictExpr (ExprApp (ExprApp (ExprVar op) e0) e1) m
+  | op == "+" = is ++ [InstAdd]
+  | op == "-" = is ++ [InstSub]
+  | op == "*" = is ++ [InstMul]
+  | op == "/" = is ++ [InstDiv]
+  | op == "==" = is ++ [InstEq]
+  | op == "/=" = is ++ [InstNe]
+  | op == "<" = is ++ [InstLt]
+  | op == "<=" = is ++ [InstLe]
+  | op == ">" = is ++ [InstGt]
+  | op == ">=" = is ++ [InstGe]
+  where
+    is = compileStrictExpr e1 m ++ compileStrictExpr e0 (offset 1 m)
+compileStrictExpr (ExprApp (ExprVar "negate") e) m =
+  compileStrictExpr e m ++ [InstNeg]
+compileStrictExpr (ExprApp (ExprApp (ExprApp (ExprVar "if") e0) e1) e2) m =
+  compileStrictExpr e0 m
+    ++ [InstCond (compileStrictExpr e1 m) (compileStrictExpr e2 m)]
+compileStrictExpr e m = compileLazyExpr e m ++ [InstEval]
 
 compileLetRec ::
   (Expr String -> M.Map String Int -> [Inst]) ->
@@ -217,7 +251,7 @@ compileLetRec c ds e m =
     f :: [(String, Expr String)] -> Int -> [Inst]
     f [] (-1) = []
     f ((_, e') : ds') n' =
-      compileExpr e' m' ++ [InstUpdate n'] ++ f ds' (n' - 1)
+      compileLazyExpr e' m' ++ [InstUpdate n'] ++ f ds' (n' - 1)
     f _ _ = undefined
 
 compileLet ::
@@ -229,7 +263,7 @@ compileLet c ds e m =
   where
     f :: [(String, Expr String)] -> M.Map String Int -> [Inst]
     f [] _ = []
-    f ((_, e') : ds') m' = compileExpr e' m' ++ f ds' (offset 1 m')
+    f ((_, e') : ds') m' = compileLazyExpr e' m' ++ f ds' (offset 1 m')
 
 compileArgs :: [(String, Expr String)] -> M.Map String Int -> M.Map String Int
 compileArgs ds m =
@@ -394,7 +428,7 @@ compile p = ([InstPushGlobal "main", InstEval], [], [], h, gs)
 testCompile :: IO ()
 testCompile = do
   TEST
-    ((compileFunc <$>) <$> parse "Y f = letrec x = f x in x")
+    (f "Y f = letrec x = f x in x")
     ( Just
         [ ( "Y",
             1,
@@ -404,6 +438,7 @@ testCompile = do
               InstMkApp,
               InstUpdate 0,
               InstPush 0,
+              InstEval,
               InstSlide 1,
               InstUpdate 1,
               InstPop 1,
@@ -412,7 +447,26 @@ testCompile = do
           )
         ]
     )
+  TEST
+    (f "f = 3 + 4 * 5")
+    ( Just
+        [ ( "f",
+            0,
+            [ InstPushInt 5,
+              InstPushInt 4,
+              InstMul,
+              InstPushInt 3,
+              InstAdd,
+              InstUpdate 0,
+              InstPop 0,
+              InstUnwind
+            ]
+          )
+        ]
+    )
   putChar '\n'
+  where
+    f = ((compileFunc <$>) <$>) . parse
 
 testEval :: IO ()
 testEval = do
