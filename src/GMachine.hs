@@ -47,6 +47,11 @@ type Globals = M.Map String H.Addr
 
 type State = ([Inst], [H.Addr], [Frame], H.Heap Node, Globals)
 
+infix 9 .:
+
+(.:) :: (c -> d) -> (a -> b -> c) -> (a -> b -> d)
+(f .: g) x y = f $ g x y
+
 step :: State -> State
 step (i : is, as, fs, h, gs) = dispatch i (is, as, fs, h, gs)
 step _ = undefined
@@ -66,12 +71,12 @@ dispatch InstSub = binOp (-)
 dispatch InstMul = binOp (*)
 dispatch InstDiv = binOp div
 dispatch InstNeg = neg
-dispatch InstEq = binOp (\a b -> toInt $ a == b)
-dispatch InstNe = binOp (\a b -> toInt $ a /= b)
-dispatch InstLt = binOp (\a b -> toInt $ a < b)
-dispatch InstLe = binOp (\a b -> toInt $ a <= b)
-dispatch InstGt = binOp (\a b -> toInt $ a > b)
-dispatch InstGe = binOp (\a b -> toInt $ a >= b)
+dispatch InstEq = binOp (toInt .: (==))
+dispatch InstNe = binOp (toInt .: (/=))
+dispatch InstLt = binOp (toInt .: (<))
+dispatch InstLe = binOp (toInt .: (<=))
+dispatch InstGt = binOp (toInt .: (>))
+dispatch InstGe = binOp (toInt .: (>=))
 dispatch (InstCond i0 i1) = cond i0 i1
 dispatch InstEval = eval'
 
