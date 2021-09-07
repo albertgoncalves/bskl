@@ -45,5 +45,10 @@ prelude =
       ExprApp
         (ExprApp (ExprVar "compose") (ExprVar "f"))
         (ExprVar "f")
+    ),
+    ("nil", [], ExprData 1 0),
+    ( "cons",
+      ["x", "xs"],
+      ExprApp (ExprApp (ExprData 2 2) (ExprVar "x")) (ExprVar "xs")
     )
   ]

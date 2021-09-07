@@ -304,4 +304,9 @@ tests = do
           )
         ]
     )
+  TEST
+    (parse "x = Pack {0, 2} 1 2")
+    ( Just
+        [("x", [], ExprApp (ExprApp (ExprData 0 2) (ExprInt 1)) (ExprInt 2))]
+    )
   putChar '\n'

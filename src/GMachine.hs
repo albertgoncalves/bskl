@@ -1,9 +1,11 @@
 {-# LANGUAGE CPP #-}
+{-# LANGUAGE Strict #-}
 
 module GMachine where
 
+import qualified Data.IntMap.Strict as I
 import Data.List (mapAccumL)
-import qualified Data.Map.Lazy as M
+import qualified Data.Map.Strict as M
 import qualified Heap as H
 import Lang (Expr (..), Func, Program, prelude)
 import Parser (parse)
@@ -32,6 +34,9 @@ data Inst
   | InstGt
   | InstGe
   | InstCond [Inst] [Inst]
+  | InstPack Int Int
+  | InstCaseJump (I.IntMap [Inst])
+  | InstSplit Int
   deriving (Eq, Show)
 
 data Node
@@ -39,6 +44,7 @@ data Node
   | NodeApp H.Addr H.Addr
   | NodeGlobal Int [Inst]
   | NodeIndir H.Addr
+  | NodeData Int [H.Addr]
   deriving (Eq, Show)
 
 type Frame = ([Inst], [H.Addr])
@@ -80,6 +86,9 @@ dispatch InstLe = binOp (toInt .: (<=))
 dispatch InstGt = binOp (toInt .: (>))
 dispatch InstGe = binOp (toInt .: (>=))
 dispatch (InstCond i0 i1) = cond i0 i1
+dispatch (InstPack t n) = pack t n
+dispatch (InstCaseJump as) = caseJump as
+dispatch (InstSplit n) = split n
 dispatch InstEval = eval'
 
 toInt :: Bool -> Int
@@ -129,6 +138,7 @@ unwind :: State -> State
 unwind (_, as'@(a : as), fs'@((is'', as'') : fs), h, gs) =
   case H.lookup h a of
     NodeInt _ -> (is'', a : as'', fs, h, gs)
+    NodeData _ _ -> (is'', a : as'', fs, h, gs)
     NodeApp a' _ -> ([InstUnwind], a' : as', fs', h, gs)
     NodeGlobal n is' ->
       if m < n
@@ -175,6 +185,31 @@ rearrange n h as = take n (map (f . H.lookup h) $ tail as) ++ drop n as
     f (NodeApp _ a) = a
     f _ = undefined
 
+pack :: Int -> Int -> State -> State
+pack t n (is, as, fs, h, gs) =
+  if length as < n
+    then undefined
+    else (is, a : drop n as, fs, h', gs)
+  where
+    (h', a) = H.alloc h (NodeData t $ take n as)
+
+caseJump :: I.IntMap [Inst] -> State -> State
+caseJump m (is, as@(a : _), fs, h, gs) =
+  case H.lookup h a of
+    NodeData t _ -> ((I.!) m t ++ is, as, fs, h, gs)
+    _ -> undefined
+caseJump _ _ = undefined
+
+split :: Int -> State -> State
+split n (is, a : as, fs, h, gs) =
+  case H.lookup h a of
+    (NodeData _ as') ->
+      if n < length as'
+        then undefined
+        else (is, take n as' ++ as, fs, h, gs)
+    _ -> undefined
+split _ _ = undefined
+
 eval :: State -> [State]
 eval s@([], _, _, _, _) = [s]
 eval s = s : eval (step s)
@@ -207,10 +242,15 @@ compileLazyExpr (ExprVar s) m =
     then [InstPush $ (M.!) m s]
     else [InstPushGlobal s]
 compileLazyExpr (ExprInt n) _ = [InstPushInt n]
-compileLazyExpr (ExprApp e0 e1) m =
-  compileLazyExpr e1 m ++ compileLazyExpr e0 (offset 1 m) ++ [InstMkApp]
 compileLazyExpr (ExprLet r ds e) m =
   (if r then compileLetRec else compileLet) compileLazyExpr ds e m
+compileLazyExpr (ExprData t 0) _ = [InstPack t 0]
+compileLazyExpr (ExprApp (ExprData t 1) e) m =
+  compileLazyExpr e m ++ [InstPack t 1]
+compileLazyExpr (ExprApp (ExprApp (ExprData t 2) e0) e1) m =
+  compileLazyExpr e1 m ++ compileLazyExpr e0 (offset 1 m) ++ [InstPack t 2]
+compileLazyExpr (ExprApp e0 e1) m =
+  compileLazyExpr e1 m ++ compileLazyExpr e0 (offset 1 m) ++ [InstMkApp]
 compileLazyExpr _ _ = undefined
 
 -- NOTE: `E`
@@ -236,6 +276,13 @@ compileStrictExpr (ExprApp (ExprVar "negate") e) m =
 compileStrictExpr (ExprApp (ExprApp (ExprApp (ExprVar "if") e0) e1) e2) m =
   compileStrictExpr e0 m
     ++ [InstCond (compileStrictExpr e1 m) (compileStrictExpr e2 m)]
+compileStrictExpr (ExprCase e as) m =
+  compileStrictExpr e m ++ [InstCaseJump $ compileAlts as m]
+compileStrictExpr (ExprData t 0) _ = [InstPack t 0]
+compileStrictExpr (ExprApp (ExprData t 1) e) m =
+  compileLazyExpr e m ++ [InstPack t 1]
+compileStrictExpr (ExprApp (ExprApp (ExprData t 2) e0) e1) m =
+  compileLazyExpr e1 m ++ compileLazyExpr e0 (offset 1 m) ++ [InstPack t 2]
 compileStrictExpr e m = compileLazyExpr e m ++ [InstEval]
 
 compileLetRec :: Compiler -> [(String, Expr String)] -> Compiler
@@ -260,6 +307,21 @@ compileLet c ds e m =
     f :: [(String, Expr String)] -> M.Map String Int -> [Inst]
     f [] _ = []
     f ((_, e') : ds') m' = compileLazyExpr e' m' ++ f ds' (offset 1 m')
+
+compileAlts ::
+  [(Int, [String], Expr String)] -> M.Map String Int -> I.IntMap [Inst]
+compileAlts as m = I.fromList $ map f as
+  where
+    f (t, ns, e) =
+      ( t,
+        [InstSplit n]
+          ++ compileStrictExpr
+            e
+            (M.union (M.fromList $ zip ns [0 ..]) $ offset n m)
+          ++ [InstSlide n]
+      )
+      where
+        n = length ns
 
 compileArgs :: [(String, Expr String)] -> M.Map String Int -> M.Map String Int
 compileArgs ds m =
@@ -454,6 +516,21 @@ testCompile = do
           )
         ]
     )
+  TEST
+    (f "f = Pack {2, 2} 1 2")
+    ( Just
+        [ ( "f",
+            0,
+            [ InstPushInt 2,
+              InstPushInt 1,
+              InstPack 2 2,
+              InstUpdate 0,
+              InstPop 0,
+              InstUnwind
+            ]
+          )
+        ]
+    )
   putChar '\n'
   where
     f = ((compileFunc <$>) <$>) . parse
@@ -502,6 +579,57 @@ testEval = do
   TEST (f "loop = loop; main = if (0 ~= 0) loop 3") (NodeInt 3)
   TEST (f "loop = loop; main = if (negate 1 < 1) 2 loop") (NodeInt 2)
   TEST (f "loop = loop; main = if (negate 1 >= 3) loop 3") (NodeInt 3)
+  TEST
+    (f "fac n = if (n == 0) 1 (n * fac (n - 1)); main = fac 5")
+    (NodeInt 120)
+  TEST
+    ( f $
+        unlines
+          [ "gcd a b =",
+            "  if (a == b)",
+            "    a",
+            "    if (a < b) (gcd b a) (gcd b (a - b));",
+            "main = gcd 6 10"
+          ]
+    )
+    (NodeInt 2)
+  TEST
+    ( f $
+        unlines
+          [ "sum xs = case xs of",
+            "  <1>      -> 0;",
+            "  <2> y ys -> y + (sum ys);",
+            "main = sum nil"
+          ]
+    )
+    (NodeInt 0)
+  TEST
+    ( f $
+        unlines
+          [ "sum xs = case xs of",
+            "  <1>      -> 0;",
+            "  <2> y ys -> y + (sum ys);",
+            "main = sum (cons 1 (cons 1 nil))"
+          ]
+    )
+    (NodeInt 2)
+  TEST
+    ( f $
+        unlines
+          [ "ones = cons 1 ones;",
+            "sum xs = case xs of",
+            "  <1>      -> 0;",
+            "  <2> y ys -> y + (sum ys);",
+            "take n xs =",
+            "  if (n == 0)",
+            "    nil",
+            "    (case xs of",
+            "      <1>      -> nil;",
+            "      <2> y ys -> cons y (take (n - 1) ys));",
+            "main = sum (take 10 ones)"
+          ]
+    )
+    (NodeInt 10)
   putChar '\n'
   where
     f = maybe undefined (f' . last . eval . compile) . parse
