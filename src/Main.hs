@@ -1,3 +1,5 @@
+{-# LANGUAGE Strict #-}
+
 import qualified GMachine as G
 import qualified Parser as P
 import qualified Template as T

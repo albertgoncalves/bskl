@@ -630,6 +630,79 @@ testEval = do
           ]
     )
     (NodeInt 10)
+  TEST
+    ( f $
+        unlines
+          [ "ones = cons 1 ones;",
+            "sumZip l r =",
+            "  case l of",
+            "    <1>      -> 0;",
+            "    <2> x xs ->",
+            "      case r of",
+            "        <1>      -> 0;",
+            "        <2> y ys -> x + y + sumZip xs ys;",
+            "main = sumZip ones (cons 1 (cons 2 (cons 3 nil)))"
+          ]
+    )
+    (NodeInt 9)
+  TEST
+    ( f $
+        unlines
+          [ "loop n = if (n == 0) n (n + (loop (n - 1)));",
+            "main = loop 10000"
+          ]
+    )
+    (NodeInt 50005000)
+  TEST
+    ( f $
+        unlines
+          [ "ackermannPeter m n =",
+            "  if (m == 0)",
+            "    (n + 1)",
+            "    (if (n == 0)",
+            "      (ackermannPeter (m - 1) 1)",
+            "      (ackermannPeter (m - 1) (ackermannPeter m (n - 1))));",
+            "main = ackermannPeter 3 5"
+          ]
+    )
+    (NodeInt 253)
+  TEST
+    ( f $
+        unlines
+          [ "none = Pack {1, 0};",
+            "some x = Pack {2, 1} x;",
+            "head xs =",
+            "  case xs of",
+            "    <1>      -> none;",
+            "    <2> y ys -> some y;",
+            "tail xs =",
+            "  case xs of",
+            "    <1>      -> nil;",
+            "    <2> y ys -> ys;",
+            "drop n xs =",
+            "  if (n == 0)",
+            "    xs",
+            "    (case xs of",
+            "      <1>      -> nil;",
+            "      <2> y ys -> drop (n - 1) ys);",
+            "zipWith f l r =",
+            "  case l of",
+            "    <1>      -> nil;",
+            "    <2> x xs ->",
+            "      case r of",
+            "        <1>      -> nil;",
+            "        <2> y ys -> cons (f x y) (zipWith f xs ys);",
+            "add x y = x + y;",
+            "main =",
+            "  letrec",
+            "    fibs = cons 0 (cons 1 (zipWith add fibs (tail fibs)))",
+            "  in",
+            "  case (head (drop 10 fibs)) of",
+            "    <1>   -> 0;",
+            "    <2> x -> negate x"
+          ]
+    )
+    (NodeInt (-55))
   putChar '\n'
   where
     f = maybe undefined (f' . last . eval . compile) . parse

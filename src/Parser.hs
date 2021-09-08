@@ -309,4 +309,15 @@ tests = do
     ( Just
         [("x", [], ExprApp (ExprApp (ExprData 0 2) (ExprInt 1)) (ExprInt 2))]
     )
+  TEST
+    (parse "f = (\\x y. x + y)")
+    ( Just
+        [ ( "f",
+            [],
+            ExprLam
+              ["x", "y"]
+              (ExprApp (ExprApp (ExprVar "+") (ExprVar "x")) (ExprVar "y"))
+          )
+        ]
+    )
   putChar '\n'
