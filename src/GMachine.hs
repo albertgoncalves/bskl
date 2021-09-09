@@ -668,10 +668,10 @@ testEval = do
     ( f $
         unlines
           [ "loop n = if (n == 0) n (n + (loop (n - 1)));",
-            "main = loop 10000"
+            "main = loop 10"
           ]
     )
-    (NodeInt 50005000)
+    (NodeInt 55)
   TEST
     ( f $
         unlines
@@ -681,10 +681,10 @@ testEval = do
             "    (if (n == 0)",
             "      (ackermannPeter (m - 1) 1)",
             "      (ackermannPeter (m - 1) (ackermannPeter m (n - 1))));",
-            "main = ackermannPeter 3 5"
+            "main = ackermannPeter 2 1"
           ]
     )
-    (NodeInt 253)
+    (NodeInt 5)
   TEST
     ( f $
         unlines

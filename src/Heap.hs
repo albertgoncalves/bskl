@@ -30,7 +30,7 @@ isNull :: Addr -> Bool
 isNull = (null ==)
 
 empty :: Heap a
-empty = Heap 0 (map Addr [1 .. 1000000]) M.empty
+empty = Heap 0 (map Addr [1 .. 250]) M.empty
 
 alloc :: Heap a -> a -> (Heap a, Addr)
 alloc (Heap s (a : as) m) x =
