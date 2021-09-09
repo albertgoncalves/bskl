@@ -703,6 +703,26 @@ testEval = do
           ]
     )
     (NodeInt (-55))
+  TEST
+    ( f $
+        unlines
+          [ "sum xs = case xs of",
+            "  <1>      -> 0;",
+            "  <2> y ys -> y + (sum ys);",
+            "take n xs =",
+            "  if (n == 0)",
+            "    nil",
+            "    (case xs of",
+            "      <1>      -> nil;",
+            "      <2> y ys -> cons y (take (n - 1) ys));",
+            "main = ",
+            "  letrec",
+            "    xs = cons 1 (cons 2 (cons 3 xs))",
+            "  in",
+            "  sum (take 10 xs)"
+          ]
+    )
+    (NodeInt 19)
   putChar '\n'
   where
     f = maybe undefined (f' . last . eval . compile) . parse
