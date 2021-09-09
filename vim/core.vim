@@ -14,6 +14,7 @@ syn match Number   "\<[0-9]\+\>"
 syn keyword Keyword
     \ case
     \ of
+    \ if
     \ let
     \ letrec
     \ in
