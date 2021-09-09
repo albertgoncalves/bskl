@@ -97,7 +97,7 @@ int :: Parser Int
 int = satisfy (all isDigit) `apply` read
 
 keywords :: [String]
-keywords = ["let", "letrec", "case", "in", "of", "Pack"]
+keywords = ["let", "letrec", "case", "in", "of", "Pack", "undef"]
 
 var :: Parser String
 var =
@@ -184,14 +184,19 @@ expr6 :: Parser (Expr String)
 expr6 = many1 atomic `apply` foldl1 ExprApp
 
 atomic :: Parser (Expr String)
-atomic =
-  pack `alt` (parens `alt` ((var `apply` ExprVar) `alt` (int `apply` ExprInt)))
+atomic = undef `alt` (pack `alt` (parens `alt` (var' `alt` int')))
+  where
+    var' = var `apply` ExprVar
+    int' = int `apply` ExprInt
 
 parens :: Parser (Expr String)
 parens = lift3 (\_ e _ -> e) (lit "(") expr (lit ")")
 
 pack :: Parser (Expr String)
 pack = lift4 (\_ _ x _ -> x) (lit "Pack") (lit "{") tagArity (lit "}")
+
+undef :: Parser (Expr String)
+undef = lit "undef" `apply` const ExprUndef
 
 tagArity :: Parser (Expr String)
 tagArity = lift3 (\t _ a -> ExprData t a) int (lit ",") int
@@ -317,6 +322,17 @@ tests = do
             ExprLam
               ["x", "y"]
               (ExprApp (ExprApp (ExprVar "+") (ExprVar "x")) (ExprVar "y"))
+          )
+        ]
+    )
+  TEST
+    (parse "f = 1 + (f undef)")
+    ( Just
+        [ ( "f",
+            [],
+            ExprApp
+              (ExprApp (ExprVar "+") (ExprInt 1))
+              (ExprApp (ExprVar "f") ExprUndef)
           )
         ]
     )

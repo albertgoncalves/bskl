@@ -12,6 +12,7 @@ data Expr a
   | ExprLet IsRec [(a, Expr a)] (Expr a)
   | ExprCase (Expr a) [(Int, [a], Expr a)]
   | ExprLam [a] (Expr a)
+  | ExprUndef
   deriving (Eq, Show)
 
 isAtomic :: Expr a -> Bool

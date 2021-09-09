@@ -37,6 +37,7 @@ data Inst
   | InstPack Int Int
   | InstCaseJump (I.IntMap [Inst])
   | InstSplit Int
+  | InstUndef
   deriving (Eq, Show)
 
 data Node
@@ -90,6 +91,7 @@ dispatch (InstPack t n) = pack t n
 dispatch (InstCaseJump as) = caseJump as
 dispatch (InstSplit n) = split n
 dispatch InstEval = eval'
+dispatch InstUndef = undefined
 
 toInt :: Bool -> Int
 toInt True = 1
@@ -237,6 +239,7 @@ compileUnwind e m =
 
 -- NOTE: `C`
 compileLazyExpr :: Compiler
+compileLazyExpr ExprUndef _ = [InstUndef]
 compileLazyExpr (ExprVar s) m =
   if M.member s m
     then [InstPush $ (M.!) m s]
@@ -255,6 +258,7 @@ compileLazyExpr _ _ = undefined
 
 -- NOTE: `E`
 compileStrictExpr :: Compiler
+compileStrictExpr ExprUndef _ = [InstUndef]
 compileStrictExpr (ExprInt n) _ = [InstPushInt n]
 compileStrictExpr (ExprLet r ds e) m =
   (if r then compileLetRec else compileLet) compileStrictExpr ds e m
@@ -531,6 +535,21 @@ testCompile = do
           )
         ]
     )
+  TEST
+    (f "f = 1 + undef")
+    ( Just
+        [ ( "f",
+            0,
+            [ InstUndef,
+              InstPushInt 1,
+              InstAdd,
+              InstUpdate 0,
+              InstPop 0,
+              InstUnwind
+            ]
+          )
+        ]
+    )
   putChar '\n'
   where
     f = ((compileFunc <$>) <$>) . parse
@@ -677,7 +696,7 @@ testEval = do
             "    <2> y ys -> some y;",
             "tail xs =",
             "  case xs of",
-            "    <1>      -> nil;",
+            "    <1>      -> undef;",
             "    <2> y ys -> ys;",
             "drop n xs =",
             "  if (n == 0)",
@@ -698,7 +717,7 @@ testEval = do
             "    fibs = cons 0 (cons 1 (zipWith add fibs (tail fibs)))",
             "  in",
             "  case head (drop 10 fibs) of",
-            "    <1>   -> 0;",
+            "    <1>   -> undef;",
             "    <2> x -> negate x"
           ]
     )
