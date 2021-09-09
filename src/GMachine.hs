@@ -697,7 +697,7 @@ testEval = do
             "  letrec",
             "    fibs = cons 0 (cons 1 (zipWith add fibs (tail fibs)))",
             "  in",
-            "  case (head (drop 10 fibs)) of",
+            "  case head (drop 10 fibs) of",
             "    <1>   -> 0;",
             "    <2> x -> negate x"
           ]
