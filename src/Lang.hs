@@ -15,11 +15,6 @@ data Expr a
   | ExprUndef
   deriving (Eq, Show)
 
-isAtomic :: Expr a -> Bool
-isAtomic (ExprVar _) = True
-isAtomic (ExprInt _) = True
-isAtomic _ = False
-
 type Func = (String, [String], Expr String)
 
 type Program = [Func]

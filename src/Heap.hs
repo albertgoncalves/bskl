@@ -26,9 +26,6 @@ instance Show a => Show (Heap a) where
 null :: Addr
 null = Addr 0
 
-isNull :: Addr -> Bool
-isNull = (null ==)
-
 empty :: Heap a
 empty = Heap 0 (map Addr [1 .. 250]) M.empty
 
