@@ -6,6 +6,7 @@ module GMachine where
 import qualified Data.IntMap.Strict as I
 import Data.List (mapAccumL)
 import qualified Data.Map.Strict as M
+import Data.Maybe (fromMaybe)
 import qualified Heap as H
 import Lang (Expr (..), Func, Program, prelude)
 import Parser (parse)
@@ -250,6 +251,13 @@ compileUnwind e m =
   where
     n = M.size m
 
+compileData :: Expr String -> M.Map String Int -> Maybe [Inst]
+compileData (ExprApp (ExprData t n) e) m =
+  Just $ compileLazyExpr e m ++ [InstPack t n]
+compileData (ExprApp e0@(ExprApp _ _) e1) m =
+  (compileLazyExpr e1 m ++) <$> compileData e0 (offset 1 m)
+compileData _ _ = Nothing
+
 -- NOTE: `C`
 compileLazyExpr :: Compiler
 compileLazyExpr ExprUndef _ = [InstPushUndef]
@@ -261,12 +269,10 @@ compileLazyExpr (ExprInt n) _ = [InstPushInt n]
 compileLazyExpr (ExprLet r ds e) m =
   (if r then compileLetRec else compileLet) compileLazyExpr ds e m
 compileLazyExpr (ExprData t 0) _ = [InstPack t 0]
-compileLazyExpr (ExprApp (ExprData t 1) e) m =
-  compileLazyExpr e m ++ [InstPack t 1]
-compileLazyExpr (ExprApp (ExprApp (ExprData t 2) e0) e1) m =
-  compileLazyExpr e1 m ++ compileLazyExpr e0 (offset 1 m) ++ [InstPack t 2]
-compileLazyExpr (ExprApp e0 e1) m =
-  compileLazyExpr e1 m ++ compileLazyExpr e0 (offset 1 m) ++ [InstMkApp]
+compileLazyExpr e@(ExprApp e0 e1) m =
+  fromMaybe
+    (compileLazyExpr e1 m ++ compileLazyExpr e0 (offset 1 m) ++ [InstMkApp])
+    (compileData e m)
 compileLazyExpr _ _ = undefined
 
 -- NOTE: `E`
@@ -295,11 +301,8 @@ compileStrictExpr (ExprApp (ExprApp (ExprApp (ExprVar "if") e0) e1) e2) m =
     ++ [InstCond (compileStrictExpr e1 m) (compileStrictExpr e2 m)]
 compileStrictExpr (ExprCase e as) m =
   compileStrictExpr e m ++ [InstCaseJump $ compileAlts as m]
-compileStrictExpr (ExprData t 0) _ = [InstPack t 0]
-compileStrictExpr (ExprApp (ExprData t 1) e) m =
-  compileLazyExpr e m ++ [InstPack t 1]
-compileStrictExpr (ExprApp (ExprApp (ExprData t 2) e0) e1) m =
-  compileLazyExpr e1 m ++ compileLazyExpr e0 (offset 1 m) ++ [InstPack t 2]
+compileStrictExpr e@(ExprApp _ _) m =
+  fromMaybe (compileLazyExpr e m ++ [InstEval]) (compileData e m)
 compileStrictExpr e m = compileLazyExpr e m ++ [InstEval]
 
 compileLetRec :: Compiler -> [(String, Expr String)] -> Compiler
@@ -692,6 +695,24 @@ testEval = do
           ]
     )
     (NodeInt 19)
+  TEST
+    ( f $
+        unlines
+          [ "c0 a b c = Pack {1, 3} a b c;",
+            "c1 a b c d = Pack {2, 4} a b c d;",
+            "f x =",
+            "  case x of",
+            "    <1> a b c   -> (a - b) + c;",
+            "    <2> a b c d -> ((a - b) + c) - d;",
+            "main =",
+            "  let",
+            "    x = c0 1 2 3;",
+            "    y = c1 1 2 3 4",
+            "  in",
+            "  (f x) + (f y)"
+          ]
+    )
+    (NodeInt 0)
   putChar '\n'
   where
     f = maybe undefined (f' . last . eval . compile) . parse
