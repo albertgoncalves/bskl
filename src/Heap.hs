@@ -27,7 +27,7 @@ null :: Addr
 null = Addr 0
 
 empty :: Heap a
-empty = Heap 0 (map Addr [1 .. 250]) M.empty
+empty = Heap 0 (map Addr [1 .. 200]) M.empty
 
 alloc :: Heap a -> a -> (Heap a, Addr)
 alloc (Heap s (a : as) m) x =

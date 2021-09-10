@@ -101,13 +101,14 @@ pushGlobal :: String -> State -> State
 pushGlobal s (is, as, fs, h, gs) = (is, (M.!) gs s : as, fs, h, gs)
 
 pushInt :: Int -> State -> State
-pushInt n (is, as, fs, h, gs) = (is, a : as, fs, h', gs)
+pushInt n (is, as, fs, h, gs) =
+  if M.member s gs
+    then (is, (M.!) gs s : as, fs, h, gs)
+    else
+      let (h', a) = H.alloc h (NodeInt n)
+       in (is, a : as, fs, h', M.insert s a gs)
   where
     s = show n
-    (h', a) =
-      if M.member s gs
-        then (h, (M.!) gs s)
-        else H.alloc h (NodeInt n)
 
 mkApp :: State -> State
 mkApp (is, a0 : a1 : as, fs, h, gs) = (is, a : as, fs, h', gs)
