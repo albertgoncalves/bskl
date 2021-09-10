@@ -37,7 +37,7 @@ data Inst
   | InstPack Int Int
   | InstCaseJump (I.IntMap [Inst])
   | InstSplit Int
-  | InstUndef
+  | InstPushUndef
   deriving (Eq, Show)
 
 data Node
@@ -46,6 +46,7 @@ data Node
   | NodeGlobal Int [Inst]
   | NodeIndir H.Addr
   | NodeData Int [H.Addr]
+  | NodeUndef
   deriving (Eq, Show)
 
 type Frame = ([Inst], [H.Addr])
@@ -91,7 +92,7 @@ dispatch (InstPack t n) = pack t n
 dispatch (InstCaseJump as) = caseJump as
 dispatch (InstSplit n) = split n
 dispatch InstEval = eval'
-dispatch InstUndef = undefined
+dispatch InstPushUndef = pushUndef
 
 toInt :: Bool -> Int
 toInt True = 1
@@ -140,6 +141,7 @@ pop n (is, as, fs, h, gs) = (is, drop n as, fs, h, gs)
 unwind :: State -> State
 unwind (_, as'@(a : as), fs'@((is'', as'') : fs), h, gs) =
   case H.lookup h a of
+    NodeUndef -> undefined
     NodeInt _ -> (is'', a : as'', fs, h, gs)
     NodeData _ _ -> (is'', a : as'', fs, h, gs)
     NodeApp a' _ -> ([InstUnwind], a' : as', fs', h, gs)
@@ -181,6 +183,16 @@ cond _ _ _ = undefined
 eval' :: State -> State
 eval' (is, a : as, fs, h, gs) = ([InstUnwind], [a], (is, as) : fs, h, gs)
 eval' _ = undefined
+
+pushUndef :: State -> State
+pushUndef (is, as, fs, h, gs) =
+  if M.member s gs
+    then (is, (M.!) gs s : as, fs, h, gs)
+    else
+      let (h', a) = H.alloc h NodeUndef
+       in (is, a : as, fs, h', M.insert s a gs)
+  where
+    s = "undef"
 
 rearrange :: Int -> H.Heap Node -> [H.Addr] -> [H.Addr]
 rearrange n h as = take n (map (f . H.lookup h) $ tail as) ++ drop n as
@@ -240,7 +252,7 @@ compileUnwind e m =
 
 -- NOTE: `C`
 compileLazyExpr :: Compiler
-compileLazyExpr ExprUndef _ = [InstUndef]
+compileLazyExpr ExprUndef _ = [InstPushUndef]
 compileLazyExpr (ExprVar s) m =
   if M.member s m
     then [InstPush $ (M.!) m s]
@@ -259,7 +271,7 @@ compileLazyExpr _ _ = undefined
 
 -- NOTE: `E`
 compileStrictExpr :: Compiler
-compileStrictExpr ExprUndef _ = [InstUndef]
+compileStrictExpr ExprUndef _ = [InstPushUndef]
 compileStrictExpr (ExprInt n) _ = [InstPushInt n]
 compileStrictExpr (ExprLet r ds e) m =
   (if r then compileLetRec else compileLet) compileStrictExpr ds e m
@@ -541,7 +553,7 @@ testCompile = do
     ( Just
         [ ( "f",
             0,
-            [ InstUndef,
+            [ InstPushUndef,
               InstPushInt 1,
               InstAdd,
               InstUpdate 0,
