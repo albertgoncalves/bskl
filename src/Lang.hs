@@ -21,30 +21,101 @@ type Program = [Func]
 
 prelude :: Program
 prelude =
-  [ ("I", ["x"], ExprVar "x"),
-    ("K", ["x", "y"], ExprVar "x"),
-    ("K1", ["x", "y"], ExprVar "y"),
-    ( "S",
-      ["f", "g", "x"],
-      ExprApp
-        (ExprApp (ExprVar "f") (ExprVar "x"))
-        (ExprApp (ExprVar "g") (ExprVar "x"))
-    ),
+  [ ("id", ["x"], ExprVar "x"),
+    ("const", ["x", "y"], ExprVar "x"),
     ( "compose",
       ["f", "g", "x"],
       ExprApp
         (ExprVar "f")
         (ExprApp (ExprVar "g") (ExprVar "x"))
     ),
-    ( "twice",
-      ["f"],
-      ExprApp
-        (ExprApp (ExprVar "compose") (ExprVar "f"))
-        (ExprVar "f")
-    ),
     ("nil", [], ExprData 1 0),
     ( "cons",
       ["x", "xs"],
       ExprApp (ExprApp (ExprData 2 2) (ExprVar "x")) (ExprVar "xs")
+    ),
+    ( "take",
+      ["n", "xs"],
+      ExprApp
+        ( ExprApp
+            ( ExprApp
+                (ExprVar "if")
+                (ExprApp (ExprApp (ExprVar "==") (ExprVar "n")) (ExprInt 0))
+            )
+            (ExprVar "nil")
+        )
+        ( ExprCase
+            (ExprVar "xs")
+            [ (1, [], ExprInt 0),
+              ( 2,
+                ["y", "ys"],
+                ExprApp
+                  (ExprApp (ExprVar "cons") (ExprVar "y"))
+                  ( ExprApp
+                      ( ExprApp
+                          (ExprVar "take")
+                          ( ExprApp
+                              (ExprApp (ExprVar "-") (ExprVar "n"))
+                              (ExprInt 1)
+                          )
+                      )
+                      (ExprVar "ys")
+                  )
+              )
+            ]
+        )
+    ),
+    ( "drop",
+      ["n", "xs"],
+      ExprApp
+        ( ExprApp
+            ( ExprApp
+                (ExprVar "if")
+                (ExprApp (ExprApp (ExprVar "==") (ExprVar "n")) (ExprInt 0))
+            )
+            (ExprVar "xs")
+        )
+        ( ExprCase
+            (ExprVar "xs")
+            [ (1, [], ExprVar "nil"),
+              ( 2,
+                ["y", "ys"],
+                ExprApp
+                  ( ExprApp
+                      (ExprVar "drop")
+                      ( ExprApp
+                          (ExprApp (ExprVar "-") (ExprVar "n"))
+                          (ExprInt 1)
+                      )
+                  )
+                  (ExprVar "ys")
+              )
+            ]
+        )
+    ),
+    ( "sum",
+      ["xs"],
+      ExprCase
+        (ExprVar "xs")
+        [ (1, [], ExprInt 0),
+          ( 2,
+            ["y", "ys"],
+            ExprApp
+              (ExprApp (ExprVar "+") (ExprVar "y"))
+              (ExprApp (ExprVar "sum") (ExprVar "ys"))
+          )
+        ]
+    ),
+    ( "head",
+      ["xs"],
+      ExprCase
+        (ExprVar "xs")
+        [(1, [], ExprUndef), (2, ["y", "ys"], ExprVar "y")]
+    ),
+    ( "tail",
+      ["xs"],
+      ExprCase
+        (ExprVar "xs")
+        [(1, [], ExprUndef), (2, ["y", "ys"], ExprVar "ys")]
     )
   ]

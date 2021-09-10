@@ -569,18 +569,18 @@ testCompile = do
 
 testEval :: IO ()
 testEval = do
-  TEST (f "id x = I x; main = twice twice id 3") (NodeInt 3)
-  TEST (f "main = S K K 3") (NodeInt 3)
-  TEST (f "main = twice (I I I) 3") (NodeInt 3)
-  TEST (f "loop x = loop x; main = K 3 (loop 1)") (NodeInt 3)
-  TEST (f "loop = loop; main = K I loop 1") (NodeInt 1)
-  TEST (f "h x y = g x y; g x = f x; f = K I; main = f 1 2") (NodeInt 2)
+  TEST (f "twice f = compose f f; main = twice twice id 3") (NodeInt 3)
+  TEST (f "f g h x = (g x) (h x); main = f const const 3") (NodeInt 3)
+  TEST (f "twice f = compose f f; main = twice (id id id) 3") (NodeInt 3)
+  TEST (f "main = const 3 undef") (NodeInt 3)
+  TEST (f "main = const id undef 1") (NodeInt 1)
+  TEST (f "h x y = g x y; g x = f x; f = const id; main = f 1 2") (NodeInt 2)
   TEST
     ( f $
         unlines
           [ "pair x y f = f x y;",
-            "fst p = p K;",
-            "snd p = p K1;",
+            "fst p = p id;",
+            "snd p = p (const id);",
             "f x y =",
             "  letrec",
             "    a = pair x b;",
@@ -591,16 +591,14 @@ testEval = do
           ]
     )
     (NodeInt 4)
-  TEST (f "main = let id1 = I I I in id1 id1 3") (NodeInt 3)
+  TEST (f "main = let f = id id id in f f 3") (NodeInt 3)
   TEST
     ( f $
         unlines
-          [ "cons a b cc n = cc a b;",
-            "nil cc cn = cn;",
-            "hd list = list K abort;",
-            "tl list = list K1 abort;",
-            "abort = abort;",
-            "infinite x = letrec xs = cons x xs in xs;",
+          [ "consFn a b cc n = cc a b;",
+            "hd list = list const undef;",
+            "tl list = list (const id) undef;",
+            "infinite x = letrec xs = consFn x xs in xs;",
             "main = hd (tl (tl (infinite 4)))"
           ]
     )
@@ -625,43 +623,9 @@ testEval = do
           ]
     )
     (NodeInt 2)
-  TEST
-    ( f $
-        unlines
-          [ "sum xs = case xs of",
-            "  <1>      -> 0;",
-            "  <2> y ys -> y + (sum ys);",
-            "main = sum nil"
-          ]
-    )
-    (NodeInt 0)
-  TEST
-    ( f $
-        unlines
-          [ "sum xs = case xs of",
-            "  <1>      -> 0;",
-            "  <2> y ys -> y + (sum ys);",
-            "main = sum (cons 1 (cons 1 nil))"
-          ]
-    )
-    (NodeInt 2)
-  TEST
-    ( f $
-        unlines
-          [ "ones = cons 1 ones;",
-            "sum xs = case xs of",
-            "  <1>      -> 0;",
-            "  <2> y ys -> y + (sum ys);",
-            "take n xs =",
-            "  if (n == 0)",
-            "    nil",
-            "    (case xs of",
-            "      <1>      -> nil;",
-            "      <2> y ys -> cons y (take (n - 1) ys));",
-            "main = sum (take 10 ones)"
-          ]
-    )
-    (NodeInt 10)
+  TEST (f "main = sum nil") (NodeInt 0)
+  TEST (f "main = sum (cons 1 (cons 1 nil))") (NodeInt 2)
+  TEST (f "ones = cons 1 ones; main = sum (take 10 ones)") (NodeInt 10)
   TEST
     ( f $
         unlines
@@ -701,23 +665,7 @@ testEval = do
   TEST
     ( f $
         unlines
-          [ "none = Pack {1, 0};",
-            "some x = Pack {2, 1} x;",
-            "head xs =",
-            "  case xs of",
-            "    <1>      -> none;",
-            "    <2> y ys -> some y;",
-            "tail xs =",
-            "  case xs of",
-            "    <1>      -> undef;",
-            "    <2> y ys -> ys;",
-            "drop n xs =",
-            "  if (n == 0)",
-            "    xs",
-            "    (case xs of",
-            "      <1>      -> nil;",
-            "      <2> y ys -> drop (n - 1) ys);",
-            "zipWith f l r =",
+          [ "zipWith f l r =",
             "  case l of",
             "    <1>      -> nil;",
             "    <2> x xs ->",
@@ -729,25 +677,14 @@ testEval = do
             "  letrec",
             "    fibs = cons 0 (cons 1 (zipWith add fibs (tail fibs)))",
             "  in",
-            "  case head (drop 10 fibs) of",
-            "    <1>   -> undef;",
-            "    <2> x -> negate x"
+            "  negate (head (drop 10 fibs))"
           ]
     )
     (NodeInt (-55))
   TEST
     ( f $
         unlines
-          [ "sum xs = case xs of",
-            "  <1>      -> 0;",
-            "  <2> y ys -> y + (sum ys);",
-            "take n xs =",
-            "  if (n == 0)",
-            "    nil",
-            "    (case xs of",
-            "      <1>      -> nil;",
-            "      <2> y ys -> cons y (take (n - 1) ys));",
-            "main = ",
+          [ "main = ",
             "  letrec",
             "    xs = cons 1 (cons 2 (cons 3 xs))",
             "  in",

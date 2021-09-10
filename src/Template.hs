@@ -137,13 +137,13 @@ eval x =
 
 tests :: IO ()
 tests = do
-  TEST (f "main = S K K 3") (NodeInt 3)
+  TEST (f "f g h x = (g x) (h x); main = f const const 3") (NodeInt 3)
   TEST
     ( f $
         unlines
           [ "pair x y f = f x y;",
-            "fst p = p K;",
-            "snd p = p K1;",
+            "fst p = p const;",
+            "snd p = p (const id);",
             "f x y =",
             "  letrec",
             "    a = pair x b;",
@@ -154,31 +154,29 @@ tests = do
           ]
     )
     (NodeInt 4)
-  TEST (f "id x = I x; main = twice twice id 3") (NodeInt 3)
-  TEST (f "main = twice (I I I) 3") (NodeInt 3)
+  TEST (f "twice f = compose f f; main = twice twice id 3") (NodeInt 3)
+  TEST (f "twice f = compose f f; main = twice (id id id) 3") (NodeInt 3)
   TEST
     ( f $
         unlines
-          [ "cons a b cc n = cc a b;",
-            "nil cc cn = cn;",
-            "hd list = list K abort;",
-            "tl list = list K1 abort;",
+          [ "consFn a b cc n = cc a b;",
+            "hd list = list const abort;",
+            "tl list = list (const id) abort;",
             "abort = abort;",
-            "infinite x = cons x (infinite x);",
+            "infinite x = consFn x (infinite x);",
             "main = hd (tl (infinite 4))"
           ]
     )
     (NodeInt 4)
-  TEST (f "main = let id1 = I I I in id1 id1 3") (NodeInt 3)
+  TEST (f "main = let f = id id id in f f 3") (NodeInt 3)
   TEST
     ( f $
         unlines
-          [ "cons a b cc n = cc a b;",
-            "nil cc cn = cn;",
-            "hd list = list K abort;",
-            "tl list = list K1 abort;",
+          [ "consFn a b cc n = cc a b;",
+            "hd list = list const abort;",
+            "tl list = list (const id) abort;",
             "abort = abort;",
-            "infinite x = letrec xs = cons x xs in xs;",
+            "infinite x = letrec xs = consFn x xs in xs;",
             "main = hd (tl (tl (infinite 4)))"
           ]
     )
