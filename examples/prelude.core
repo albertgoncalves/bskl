@@ -1,6 +1,38 @@
-I x = x;
-K x y = x;
-K1 x y = y;
-S f g x = f x (g x);
+id x = x;
+
+const x y = x;
+
 compose f g x = f (g x);
-twice f = compose f f
+
+nil = Pack {1, 0};
+
+cons x xs = Pack {2, 2} x xs;
+
+take n xs =
+  if (n == 0)
+    nil
+    (case xs of
+      <1>      -> nil;
+      <2> y ys -> cons y (take (n - 1) ys));
+
+drop n xs =
+  if (n == 0)
+    xs
+    (case xs of
+      <1>      -> nil;
+      <2> y ys -> drop (n - 1) ys);
+
+sum xs =
+  case xs of
+    <1>      -> 0;
+    <2> y ys -> y + (sum ys);
+
+head xs =
+  case xs of
+    <1>      -> undef;
+    <2> y ys -> y;
+
+tail xs =
+  case xs of
+    <1>      -> undef;
+    <2> y ys -> ys
