@@ -46,7 +46,7 @@ prelude =
         )
         ( ExprCase
             (ExprVar "xs")
-            [ (1, [], ExprInt 0),
+            [ (1, [], ExprVar "nil"),
               ( 2,
                 ["y", "ys"],
                 ExprApp
