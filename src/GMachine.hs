@@ -577,7 +577,7 @@ testEval = do
   TEST (f "twice f = compose f f; main = twice (id id id) 3") (NodeInt 3)
   TEST (f "main = const 3 undef") (NodeInt 3)
   TEST (f "main = const id undef 1") (NodeInt 1)
-  TEST (f "h x y = g x y; g x = f x; f = const id; main = f 1 2") (NodeInt 2)
+  TEST (f "h x y = g x y; g x = f x; f = const id; main = h 1 2") (NodeInt 2)
   TEST
     ( f $
         unlines
