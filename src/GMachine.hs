@@ -689,7 +689,8 @@ testEval = do
         unlines
           [ "main = ",
             "  letrec",
-            "    xs = cons 1 (cons 2 (cons 3 xs))",
+            "    x = 1;",
+            "    xs = cons x (cons 2 (cons 3 xs))",
             "  in",
             "  sum (take 10 xs)"
           ]
@@ -713,6 +714,7 @@ testEval = do
           ]
     )
     (NodeInt 0)
+  TEST (f "f x = if (1 == x) x; main = f 1 undef") (NodeInt 1)
   putChar '\n'
   where
     f = maybe undefined (f' . last . eval . compile) . parse
